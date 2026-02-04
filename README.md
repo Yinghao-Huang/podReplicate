@@ -1,108 +1,108 @@
-# Replicating a Podman Pod to Another Machine
+# 將 Podman Pod 複製到另一台機器
 
-This guide explains how to replicate (migrate/copy) an existing Podman pod from your Bazzite laptop to another Linux machine.
+本指南說明如何將現有的 Podman pod 從您的 Bazzite 筆記本電腦複製（遷移/備份）到另一台 Linux 機器。
 
-## Prerequisites
+## 先決條件
 
-*   **Source Machine:** Bazzite (running Podman)
-*   **Target Machine:** Linux with Podman installed
-*   **Network Access:** SSH access between machines is recommended for file transfer.
+*   **來源機器：** Bazzite（正在運行 Podman）
+*   **目標機器：** 安裝了 Podman 的 Linux
+*   **網路存取：** 建議機器之間可以透過 SSH 進行檔案傳輸。
 
-## Step 1: Identify Your Pod
+## 步驟 1：確認您的 Pod
 
-List your current pods to find the name of the one you want to replicate.
+列出目前的 pod 以找到您想要複製的 pod 名稱。
 
 ```bash
 podman pod ps
 ```
 
-*In this guide, we will use `my-pod` as the example name.*
+*在本指南中，我們將使用 `my-pod` 作為範例名稱。*
 
-## Step 2: Export Pod Configuration (YAML)
+## 步驟 2：匯出 Pod 設定 (YAML)
 
-Podman can generate a Kubernetes-compatible YAML file that describes your pod and its containers.
+Podman 可以產生一個與 Kubernetes 相容的 YAML 檔案，其中描述了您的 pod 及其容器。
 
 ```bash
 podman generate kube my-pod > my-pod.yaml
 ```
 
-*Note: If you want to include credential secrets or other specific configurations, check `podman generate kube --help` for more options.*
+*注意：如果您想包含憑證密鑰或其他特定設定，請查看 `podman generate kube --help` 以獲取更多選項。*
 
-## Step 3: Save Container Images
+## 步驟 3：儲存容器映像檔 (Images)
 
-The target machine needs the images used by your pod. You can save them to a tar archive.
+目標機器需要您的 pod 所使用的映像檔。您可以將它們儲存為 tar 封存檔。
 
-First, list images to see which ones are used:
+首先，列出映像檔以查看使用了哪些：
 ```bash
 podman image ls
 ```
 
-Then save the relevant images:
+接著儲存相關的映像檔：
 ```bash
-# Syntax: podman save -o <output-file.tar> <image1> <image2> ...
+# 語法：podman save -o <輸出檔案.tar> <映像檔1> <映像檔2> ...
 podman save -o my-pod-images.tar registry.fedoraproject.org/image1:latest docker.io/library/image2:tag
 ```
 
-## Step 4: Backup Persistent Data (Volumes)
+## 步驟 4：備份持久性資料 (Volumes)
 
-If your pod uses matching volumes or bind mounts, you must copy current data manually.
+如果您的 pod 使用了對應的卷 (volumes) 或綁定掛載 (bind mounts)，您必須手動複製目前的資料。
 
-### Check for Volumes
-Inspect the YAML file generated in Step 2 (`my-pod.yaml`) or inspect the pod containers to see where data is stored.
+### 檢查 Volumes
+檢查步驟 2 產生的 YAML 檔案 (`my-pod.yaml`) 或檢查 pod 容器以查看資料儲存位置。
 
 ```bash
 podman pod inspect my-pod
 ```
 
-### Option A: Bind Mounts (Host Directories)
-If you mapped a host directory (e.g., `-v /home/user/data:/data`), simply copy that directory using `scp` or `rsync` (see Step 5).
+### 選項 A：綁定掛載 (Host Directories)
+如果您映射了主機目錄（例如 `-v /home/user/data:/data`），只需使用 `scp` 或 `rsync` 複製該目錄（參見步驟 5）。
 
-### Option B: Named Volumes
-If you used named volumes, you need to export their data.
+### 選項 B：命名卷 (Named Volumes)
+如果您使用了命名卷，則需要匯出其資料。
 ```bash
-# Example: Mount the volume to a temporary container and tar the contents
+# 範例：將卷掛載到臨時容器並將內容打包成 tar
 podman run --rm -v my-volume-name:/volume -v $(pwd):/backup alpine tar cvf /backup/my-volume-data.tar -C /volume .
 ```
 
-## Step 5: Transfer Files to Target Machine
+## 步驟 5：傳輸檔案到目標機器
 
-Use `scp` or `rsync` to move the files to the new machine.
+使用 `scp` 或 `rsync` 將檔案移動到新機器。
 
 ```bash
-# Replace 'user@target-machine-ip' with your actual target details
+# 將 'user@target-machine-ip' 替換為您的實際目標詳細資訊
 scp my-pod.yaml my-pod-images.tar my-volume-data.tar user@target-machine-ip:~/
 ```
 
-## Step 6: Restore on Target Machine
+## 步驟 6：在目標機器上還原
 
-On the **target machine**, perform the following steps:
+在 **目標機器** 上，執行以下步驟：
 
-### 1. Load Images
+### 1. 載入映像檔
 ```bash
 podman load -i my-pod-images.tar
 ```
 
-### 2. Restore Volumes
-**For Bind Mounts:**  
-Ensure the directory structure exists at the same path as the source, or edit `my-pod.yaml` to point to the new location.
+### 2. 還原 Volumes
+**對於綁定掛載 (Bind Mounts)：**
+確保目錄結構存在於與來源相同的路徑，或編輯 `my-pod.yaml` 指向新位置。
 
-**For Named Volumes:**  
-Create the volume and restore data:
+**對於命名卷 (Named Volumes)：**
+建立卷並還原資料：
 ```bash
 podman volume create my-volume-name
 podman run --rm -v my-volume-name:/volume -v $(pwd):/backup alpine tar xvf /backup/my-volume-data.tar -C /volume
 ```
 
-### 3. Deploy the Pod
-Use the YAML file to recreate the pod.
+### 3. 部署 Pod
+使用 YAML 檔案重新建立 pod。
 
 ```bash
 podman play kube my-pod.yaml
 ```
 
-## Verification
+## 驗證
 
-Check if the pod is running correctly on the new machine:
+檢查 pod 是否在新機器上正常運作：
 
 ```bash
 podman pod ps
